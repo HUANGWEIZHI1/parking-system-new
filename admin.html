@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Underground Parking Management - Admin Panel</title>
+    <link rel="stylesheet" href="css/layui.css">
+    <script src="js/jquery.min.js"></script>
+    <script src="js/layui.js"></script>
+</head>
+<body style="padding: 100px; background-color:#f0f6fc;">
+    <h2 style="font-size:40px; margin-bottom:30px;">Parking Management Admin Panel</h2>
+    <button class="layui-btn layui-btn-normal" id="logoutBtn" style="display:none;">Logout</button>
+    <div class="layui-card" style="margin:20px 0;">
+        <div class="layui-card-header">Parking Space List Management</div>
+        <div class="layui-card-body">
+            <table class="layui-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Space Name</th>
+                        <th>Status</th>
+                        <th>Operation</th>
+                    </tr>
+                </thead>
+                <tbody id="spaceTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+    <div class="layui-card" style="margin:20px 0;">
+        <div class="layui-card-header" style="font-weight:bold;font-size:18px;">All Reservation Records</div>
+        <div class="layui-card-body" id="allReserveList"></div>
+    </div>
+    <!--管理员登录弹窗-->
+    <div id="loginLayer" style="display:none;padding:20px;">
+        <form class="layui-form" lay-filter="loginForm">
+            <div class="layui-form-item">
+                <label class="layui-form-label">Username</label>
+                <div class="layui-input-block">
+                    <input type="text" name="username" class="layui-input"  lay-verify="required">
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">Password</label>
+                <div class="layui-input-block">
+                    <input type="password" name="password" class="layui-input"  lay-verify="required">
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <div class="layui-input-block">
+                    <button class="layui-btn" lay-submit lay-filter="loginSubmit">Login</button>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <div class="layui-input-block">
+                </div>
+            </div>
+        </form>
+    </div>
+<script>
+var loginLayerIndex;
+function showLogin() {
+    layer.closeAll();
+    loginLayerIndex = layer.open({
+        type:1,
+        title:"Admin Login",
+        content:$("#loginLayer"),
+        closeBtn:0,
+        shadeClose:false,
+        shade:0.6,
+        zIndex:99999
+    })
+}
+//加载车位
+function loadSpaces(){
+    $.get("/api/spaces",function(res){
+        var html="";
+        $.each(res.data,function(i,item){
+            var statusText = "Available";
+            if(item.status ===1) statusText="Occupied";
+            if(item.status ===2) statusText="Reserved";
+            html += `<tr>
+                <td>${item.id}</td>
+                <td>${item.location}</td>
+                <td>${statusText}</td>
+                <td>
+                    <button class="layui-btn layui-btn-xs editBtn" data-id="${item.id}" data-status="${item.status}">Modify Status</button>
+                </td>
+            </tr>`
+        })
+        $("#spaceTableBody").html(html);
+    })
+}
+//加载所有预约
+//加载系统全部预约记录（管理员）
+function loadAllReservations(){
+    $.get("/api/all-reservations",function(res){
+        var html="";
+        if(res.data.length===0){
+            html="<p>No reservation data</p>";
+        }else{
+            $.each(res.data,function(i,item){
+                html += `<div class="layui-row" style="margin:8px 0;">
+                    <span>Username:${item.username} | UserID:${item.user_id} | Parking Space:${item.location} | Reservation Time:${item.start_time}</span>
+                </div>`
+            })
+        }
+        $("#allReserveList").html(html);
+    })
+}
+$(function(){
+    $.get("/api/get-current-user",function(res){
+        if(res.code ===200){
+            $("#logoutBtn").show();
+            loadSpaces();
+            loadAllReservations();
+        }
+    }).fail(function(){
+        showLogin();
+    })
+    layui.form.on('submit(loginSubmit)',function(data){
+        $.ajax({
+            url:"/api/login",
+            method:"POST",
+            contentType:"application/json",
+            data:JSON.stringify(data.field),
+            success:function(res){
+                if(res.code===200){
+                    layer.close(loginLayerIndex);
+                    $("#logoutBtn").show();
+                    loadSpaces();
+                    loadAllReservations();
+                    layer.msg("Admin login successful");
+                }else{
+                    layer.msg(res.msg);
+                }
+            }
+        })
+        return false;
+    })
+    $("#logoutBtn").click(function(){
+        $.ajax({
+            url:"/api/logout",
+            method:"POST",
+            success:function(){
+                layer.msg("Logged out");
+                $("#logoutBtn").hide();
+                $("#spaceTableBody").html("");
+                $("#allReserveList").html("");
+                showLogin();
+            }
+        })
+    })
+    // ========== 新增：修改车位状态弹窗逻辑 ==========
+    $("#spaceTableBody").on("click",".editBtn",function(){
+        var spaceId = $(this).attr("data-id");
+        var oldStatus = $(this).attr("data-status");
+        layer.open({
+            type:1,
+            title:"Modify Parking Status",
+            content:`
+                <div style="padding:20px;">
+                    <div><input type="radio" name="newStatus" value="0" ${oldStatus==0?"checked":""}>Available</div>
+                    <div><input type="radio" name="newStatus" value="1" ${oldStatus==1?"checked":""}>Occupied</div>
+                    <div><input type="radio" name="newStatus" value="2" ${oldStatus==2?"checked":""}>Reserved</div>
+                </div>
+            `,
+            btn:["Confirm","Cancel"],
+            yes:function(index, layero){
+                var newStatus = layero.find('input[name="newStatus"]:checked').val();
+                $.ajax({
+                    url:"/api/space/update",
+                    method:"POST",
+                    contentType:"application/json",
+                    data:JSON.stringify({
+                        space_id: spaceId,
+                        status: parseInt(newStatus)
+                    }),
+                    success:function(res){
+                        layer.msg("Status updated successfully");
+                        layer.close(index);
+                        loadSpaces();
+                    }
+                })
+            }
+        })
+    })
+    // ================================================
+})
+</script>
+</body>
+</html>

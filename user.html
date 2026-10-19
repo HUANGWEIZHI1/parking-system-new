@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Underground Parking Management System</title>
+    <!-- 本地离线静态资源，不需要网络 -->
+    <link rel="stylesheet" href="css/layui.css">
+    <script src="js/jquery.min.js"></script>
+    <script src="js/layui.js"></script>
+</head>
+<body style="padding: 100px; background-color:#f0f6fc;">
+    <h2 style="font-size:40px; margin-bottom:30px;">Underground Parking Reservation</h2>
+    <button class="layui-btn layui-btn-normal" id="logoutBtn" style="display:none;">Logout</button>
+    <div class="layui-card" style="margin: 40px 0;">
+        <div class="layui-card-header">Real-time Parking Status</div>
+        <div class="layui-card-body" id="spaceList"></div>
+    </div>
+    <div class="layui-card" style="margin: 40px 0;">
+        <div class="layui-card-header">Reservation Operation</div>
+        <div class="layui-card-body">
+            <div class="layui-form-item">
+                <label class="layui-form-label">Select Parking</label>
+                <div class="layui-input-block">
+                    <select id="spaceSelect">
+                        <option value="">Please select available parking</option>
+                    </select>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">Reservation Time</label>
+                <div class="layui-input-block">
+                    <input type="datetime-local" id="reserveTime" class="layui-input">
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <div class="layui-input-block">
+                    <button class="layui-btn" id="reserveBtn">Submit Reservation</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="layui-card" style="margin: 60px 0;">
+        <div class="layui-card-header">My Reservations</div>
+        <div class="layui-card-body" id="myReserveList"></div>
+    </div>
+    <!-- 登录弹窗 -->
+    <div id="loginLayer" style="display: none; padding: 20px;">
+        <form class="layui-form" lay-filter="loginForm">
+            <div class="layui-form-item">
+                <label class="layui-form-label">Username</label>
+                <div class="layui-input-block">
+                    <input type="text" name="username" class="layui-input"  lay-verify="required">
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">Password</label>
+                <div class="layui-input-block">
+                    <input type="password" name="password" class="layui-input"  lay-verify="required">
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <div class="layui-input-block">
+                    <button class="layui-btn" lay-submit lay-filter="loginSubmit">Login</button>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <div class="layui-input-block">
+                </div>
+            </div>
+        </form>
+    </div>
+<script>
+var loginLayerIndex;
+var userId = 1; // test_user 对应 user_id=1
+// 打开登录弹窗
+function showLogin() {
+    layer.closeAll(); // 关闭所有旧弹窗，清除多层遮罩
+    loginLayerIndex = layer.open({
+        type: 1,
+        title: "System Login",
+        content: $("#loginLayer"),
+        closeBtn: 0,
+        shadeClose: false,
+        shade:0.6,
+        zIndex:99999
+    });
+}
+// 加载车位列表
+// 加载车位列表
+function loadSpaces(){
+    $.get("/api/spaces",function(res){
+        var html = "";
+        var optHtml = "<option value=''>Please select available parking</option>";
+        $.each(res.data,function(i,item){
+            var statusText = "Available";
+            var badgeClass = "layui-bg-blue"; // 默认绿色，闲置
+            if(item.status ===1){
+                statusText="Occupied";
+                badgeClass = "layui-bg-red";  // 占用 → 红色
+            }
+            if(item.status ===2){
+                statusText="Reserved";
+                badgeClass = "layui-bg-orange"; // 预约 → 橙黄色（layui自带黄色系）
+            }
+            // 动态使用badgeClass，尺寸保留你之前设置好的padding字号
+            html += `<span class="layui-badge ${badgeClass}" style="margin:4px; padding:6px 10px; font-size:15px;">${item.location}: ${statusText}</span>`;
+            if(item.status ===0){
+                optHtml += `<option value="${item.id}">${item.location}</option>`;
+            }
+        })
+        $("#spaceList").html(html);
+        $("#spaceSelect").html(optHtml);
+    })
+}
+// 加载我的预约
+function loadReservations(){
+    $.get("/api/reservations?user_id="+userId,function(res){
+        var html = "";
+        if(res.data.length ===0){
+            html = "<p>No reservation records</p>";
+        }else{
+            $.each(res.data,function(i,item){
+                html += `<div class="layui-row" style="margin:8px 0;">
+                    <span>Parking${item.location}，Reservation Time：${item.start_time}</span>
+                    <button class="layui-btn layui-btn-danger layui-btn-xs cancelBtn" data-spaceid="${item.space_id}">Cancel</button>
+                </div>`;
+            })
+        }
+        $("#myReserveList").html(html);
+    })
+}
+// 页面初始化
+$(function(){
+    // 先校验登录状态
+    $.get("/api/get-current-user",function(res){
+        if(res.code === 200){
+            $("#logoutBtn").show();
+            loadSpaces();
+            loadReservations();
+        }
+    }).fail(function(){
+        // 未登录，只弹出一次登录框
+        showLogin();
+    })
+    // 登录表单提交
+    layui.form.on('submit(loginSubmit)', function(data){
+        $.ajax({
+            url:"/api/login",
+            method:"POST",
+            contentType:"application/json",
+            data:JSON.stringify(data.field),
+            success:function(res){
+                if(res.code ===200){
+                    layer.close(loginLayerIndex);
+                    $("#logoutBtn").show();
+                    loadSpaces();
+                    loadReservations();
+                    layer.msg("Login successful",{icon:1});
+                }else{
+                    layer.msg(res.msg,{icon:2});
+                }
+            },
+            error:function(){
+                layer.msg("Server connection error",{icon:2});
+            }
+        })
+        return false;
+    })
+    // 提交预约
+    // 提交预约
+$("#reserveBtn").click(function(){
+    var spaceId = $("#spaceSelect").val();
+    var time = $("#reserveTime").val();
+    if(!spaceId || !time){
+        layer.msg("Please select parking and reservation time");
+        return;
+    }
+    $.ajax({
+        url:"/api/reserve",
+        method:"POST",
+        contentType:"application/json",
+        data:JSON.stringify({
+            user_id:userId,
+            space_id:spaceId,
+            start_time:time
+        }),
+        success:function(res){
+            if(res.code===200){
+                layer.msg("Reservation submitted");
+                loadSpaces();
+                loadReservations();
+            }else{
+                layer.msg(res.msg);
+            }
+        },
+        error:function(xhr){
+            // 捕获400错误，读取后端返回的msg
+            var res = JSON.parse(xhr.responseText);
+            layer.msg(res.msg);
+        }
+    })
+})
+    // 取消预约
+    $("#myReserveList").on("click",".cancelBtn",function(){
+        var sid = $(this).attr("data-spaceid");
+        $.ajax({
+            url:"/api/cancel-reserve",
+            method:"POST",
+            contentType:"application/json",
+            data:JSON.stringify({
+                user_id:userId,
+                space_id:sid
+            }),
+            success:function(res){
+                if(res.code===200){
+                    layer.msg("Reservation cancelled");
+                    loadSpaces();
+                    loadReservations();
+                }else{
+                    layer.msg(res.msg);
+                }
+            }
+        })
+    })
+    // 退出登录 POST请求
+    $("#logoutBtn").click(function(){
+        $.ajax({
+            url:"/api/logout",
+            method:"POST",
+            success:function(){
+                layer.msg("Logged out");
+                $("#logoutBtn").hide();
+                $("#spaceList").html("");
+                $("#myReserveList").html("");
+                showLogin();
+            }
+        })
+    })
+})
+</script>
+</body>
+</html>
